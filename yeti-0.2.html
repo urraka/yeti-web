@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta http-equiv="Content-type" content="text/html; charset=utf-8" />
+	<meta name="viewport" content="width=160, user-scalable=no">
+	<title>yeti</title>
+	<style type="text/css">
+		html,body,canvas { margin: 0; padding: 0; width: 100%; height: 100%; }
+		img { position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; }
+		canvas { display: block; }
+	</style>
+</head>
+<body onload="main()">
+
+<canvas id="canvas"></canvas>
+
+<img src="yeti-0.png"     center="14,40" />
+<img src="yeti-1.png"     center="14,40" />
+<img src="yeti-crash.png" center="16,27" />
+<img src="eating-1.png"   center="13,38" />
+<img src="eating-2.png"   center="13,38" />
+<img src="eating-3.png"   center="13,38" />
+<img src="eating-4.png"   center="13,38" />
+<img src="eating-5.png"   center="13,38" />
+<img src="eating-6.png"   center="13,38" />
+<img src="tree.png"       center="16,63" />
+<img src="skiman.png"     center="11,24" />
+
+<script>
+
+function main()
+{
+	on_resize();
+
+	var images = document.getElementsByTagName("img");
+
+	for (var i = 0; i < images.length; i++)
+	{
+		var id = images[i].attributes["src"].value.split(".")[0];
+		var center = images[i].attributes["center"].value.split(",");
+
+		images[i].cx = parseInt(center[0]);
+		images[i].cy = parseInt(center[1]);
+
+		res(id, images[i]);
+	}
+
+	var game = Game();
+	var t0 = time();
+
+	function frame()
+	{
+		var t1 = time();
+		var dt = t1 - t0;
+
+		if (dt < 0.25)
+			game.update(dt);
+
+		t0 = t1;
+		requestAnimationFrame(frame);
+	}
+
+	function on_resize(event)
+	{
+		var canvas = document.getElementById("canvas");
+		canvas.width = canvas.offsetWidth;
+		canvas.height = canvas.offsetHeight;
+
+		var ctx = canvas.getContext("2d");
+
+		ctx.mozImageSmoothingEnabled = false;
+		ctx.webkitImageSmoothingEnabled = false;
+		ctx.msImageSmoothingEnabled = false;
+		ctx.imageSmoothingEnabled = false;
+	}
+
+	window.addEventListener("resize", on_resize);
+	window.addEventListener("devicemotion", game.event);
+	window.addEventListener("mousedown", game.event);
+	window.addEventListener("mousemove", game.event);
+	window.addEventListener("touchstart", function(e) { game.event(e); e.preventDefault(); });
+
+	requestAnimationFrame(frame);
+}
+
+function Game()
+{
+	var canvas = document.getElementById("canvas");
+	var context = canvas.getContext("2d");
+	var scene = Scene(canvas);
+
+	var objects = [];
+	var yeti = Yeti();
+
+	var grid_size = 80;
+	var spawn_index = Math.ceil(canvas.height / grid_size);
+
+	var points = 0;
+
+	return {
+		update: function(dt)
+		{
+			var w = canvas.width;
+			var h = canvas.height;
+
+			yeti.update(dt, w);
+
+			// yeti x is normalized between (-1,1) because he doesn't know the screen width
+			// yeti.x = clamp(yeti.x * w/2, -(w/2 - 16), w/2 - 16);
+			//yeti.x = clamp(yeti.x, -(w/2 - 16), w/2 - 16);
+
+			for (var i = 0, L = objects.length; i < L; i++)
+			{
+				if (objects[i].y >= (yeti.y - 100))
+				{
+					if (i > 0)
+						objects = objects.slice(i);
+
+					break;
+				}
+				else if (objects[i].type == "tree")
+				{
+					points++;
+				}
+			}
+
+			var max_index = Math.ceil((h + yeti.y) / grid_size);
+
+			while (spawn_index <= max_index)
+			{
+				var y = spawn_index * grid_size;
+
+				for (var x = grid_size/2; x < w; x += grid_size)
+				{
+					var rnd = noise(x, y);
+
+					if (Math.abs(rnd) < 0.04)
+					{
+						var skiman = new Sprite();
+						skiman.type = "skiman";
+						skiman.image = res("skiman");
+						skiman.x = Math.floor(x + 20 * rnd * 5 - w/2);
+						skiman.y = Math.floor(y + 20 * rnd * 5);
+						objects.push(skiman);
+					}
+					else if (Math.abs(rnd) < 0.5)
+					{
+						var tree = new Sprite();
+						tree.type = "tree";
+						tree.image = res("tree");
+						tree.x = Math.floor(x + 20 * rnd * 5 - w/2);
+						tree.y = Math.floor(y + 20 * rnd * 5);
+						objects.push(tree);
+					}
+				}
+
+				spawn_index++;
+			}
+
+			for (var i = 0, L = objects.length; i < L; i++)
+			{
+				if (!objects[i].image)
+					continue;
+
+				if (dist2(yeti.x, yeti.y, objects[i].x, objects[i].y) < 100)
+				{
+					yeti.collision(objects[i]);
+					break;
+				}
+			}
+
+			// points = Math.floor(yeti.y / 100);
+
+			scene.add(yeti);
+			scene.add(objects);
+			scene.draw(0, yeti.y - 50);
+
+			context.save();
+			context.fillStyle = "#000";
+			context.font = "16px Verdana";
+			context.textAlign = "right";
+			context.textBaseline = "bottom";
+			context.fillText(points, w - 10, h - 3);
+
+			context.fillStyle = "#F00";
+			context.fillRect(w - 5, 10 + (h - 20) * (1 - yeti.health), 3, (h - 20) * yeti.health);
+			context.restore();
+		},
+
+		event: function(event)
+		{
+			switch (event.type)
+			{
+				case "devicemotion":
+					yeti.on_motion(event);
+					break;
+
+				case "touchstart":
+				case "mousedown":
+				{
+					if (yeti.state === "dead")
+					{
+						points = 0;
+						yeti.init();
+						objects = [];
+						spawn_index = Math.ceil(canvas.height / grid_size);
+					}
+				}
+				break;
+
+				case "mousemove":
+					yeti.on_mousemove({normX: event.pageX / canvas.width});
+					break;
+			}
+		}
+	};
+}
+
+function Yeti()
+{
+	var self = new Sprite();
+
+	self.state = "running";
+	self.health = 1;
+
+	var xdest = 0;
+	var xnorm = 0;
+	var xacc = 0;
+	var xspeed = 0;
+	var xmaxspeed = 0;
+	var acceleration = 250;
+	var speed = 500;
+	var maxspeed = 500;
+	var frame = 0;
+	var eating = false;
+	var eatstart = 0;
+	var boosttime = 0;
+	var deadframe = res("yeti-crash");
+	var runframes = [res("yeti-0"), res("yeti-1")];
+	var eatframes = [
+		[res("eating-1"), res("eating-1")],
+		[res("eating-2"), res("eating-2")],
+		[res("eating-3"), res("eating-3")],
+		[res("eating-4"), res("eating-4")],
+		[res("eating-5"), res("eating-5")],
+		[res("eating-6"), res("eating-6")],
+		[res("eating-5"), res("eating-5")],
+		[res("eating-6"), res("eating-6")],
+		[res("eating-5"), res("eating-5")],
+		[res("eating-6"), res("eating-6")],
+		[res("eating-5"), res("eating-5")],
+		[res("eating-6"), res("eating-6")]
+	];
+
+	self.init = function()
+	{
+		self.state = "running";
+		self.health = 1;
+		self.y = 0;
+		xdest = 0;
+		xnorm = 0;
+		xacc = 0;
+		xspeed = 0;
+		xmaxspeed = 0;
+		speed = 500;
+		maxspeed = 500;
+		frame = 0;
+		eating = false;
+		eatstart = 0;
+		boosttime = 0;
+	}
+
+	self.on_mousemove = function(event)
+	{
+		if (self.state !== "running")
+			return;
+
+		xdest = event.normX * 2 - 1;
+	}
+
+	self.on_motion = function(event)
+	{
+		if (self.state !== "running")
+			return;
+
+		xacc = event.accelerationIncludingGravity.x * 150;
+	}
+
+	self.update = function(dt, w)
+	{
+		switch (self.state)
+		{
+			case "running":
+			{
+				if (boosttime > 0)
+				{
+					boosttime -= dt;
+
+					if (boosttime <= 0)
+						maxspeed = 500;
+				}
+
+				if (speed > maxspeed)
+					speed = Math.max(maxspeed, speed - acceleration * dt);
+				else
+					speed = Math.min(maxspeed, speed + acceleration * dt);
+
+				//xspeed += xacc * dt;
+				xnorm += xacc * dt;
+				xnorm = clamp(xnorm, -(w/2 - 16), w/2 - 16);
+
+				// xnorm += (xdest - xnorm) * 0.15;
+
+				self.x = xnorm;
+				self.y += speed * dt;
+
+				if (eating)
+				{
+					frame = (frame + 10 * dt);
+					var eatframe = frame - eatstart;
+
+					if ((eatframe|0) < eatframes.length)
+						self.image = eatframes[eatframe|0][(frame % 2)|0];
+					else
+						eating = false;
+				}
+				else
+				{
+					frame = (frame + 10 * dt) % 2;
+					self.image = runframes[frame|0];
+				}
+			}
+			break;
+
+			case "dead":
+			{
+				self.x = xnorm;
+				self.image = deadframe;
+			}
+			break;
+
+			case "eating":
+			{
+				self.x = xnorm;
+
+				frame = (frame + 10 * dt);
+
+				if ((frame|0) < eatframes.length)
+					self.image = eatframes[frame|0];
+				else
+					self.state = "running";
+			}
+			break;
+		}
+	}
+
+	self.collision = function(object)
+	{
+		switch (object.type)
+		{
+			case "tree":
+			{
+				speed = 0;
+
+				if (self.y >= object.y)
+					self.y = object.y - 1;
+
+				xdest = xnorm;
+				self.state = "dead";
+			}
+			break;
+
+			case "skiman":
+			{
+				//self.state = "eating";
+				//self.x = object.x;
+				//self.y = object.y;
+				object.image = null;
+				eatstart = frame;
+				eating = true;
+				self.health = Math.min(1, self.health + 0.25);
+				maxspeed += 75;
+				boosttime = 3;
+			}
+			break;
+		}
+	}
+
+	return self;
+}
+
+function Sprite()
+{
+	this.x = 0;
+	this.y = 0;
+	this.image = null;
+}
+
+function Scene(canvas)
+{
+	var context = canvas.getContext("2d");
+	var sprites = [];
+
+	function cmp(a, b)
+	{
+		return a.y - b.y;
+	}
+
+	return {
+		add: function(x)
+		{
+			if (x instanceof Array)
+			{
+				var N = x.length;
+
+				for (var i = 0; i < N; i++)
+					sprites.push(x[i]);
+			}
+			else
+			{
+				sprites.push(x);
+			}
+		},
+
+		draw: function(x, y)
+		{
+			var L = sprites.length;
+			var w = canvas.width;
+			var h = canvas.height;
+
+			sprites.sort(cmp);
+
+			context.save();
+			context.fillStyle = "#FFF";
+			context.fillRect(0, 0, w, h);
+			context.translate(Math.floor(w/2 - x), Math.floor(-y));
+
+			for (var i = 0; i < L; i++)
+			{
+				var s = sprites[i];
+
+				if (s.image)
+					context.drawImage(s.image, Math.floor(s.x) - s.image.cx, Math.floor(s.y) - s.image.cy);
+			}
+
+			context.restore();
+
+			for (var i = 0; i < L; i++)
+				sprites.pop();
+		}
+	};
+}
+
+function res(id, value)
+{
+	if (value)
+	{
+		res.items = res.items || {};
+		res.items[id] = value;
+	}
+	else
+	{
+		return res.items[id];
+	}
+}
+
+function time()
+{
+	return Date.now() / 1000;
+}
+
+function clamp(x, a, b)
+{
+	return Math.min(b, Math.max(a, x));
+}
+
+function sign(x)
+{
+	return x < 0 ? -1 : 1;
+}
+
+function noise(x, y)
+{
+	return (Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1;
+}
+
+function sqr(x)
+{
+	return x*x;
+}
+
+function dist2(ax, ay, bx, by)
+{
+	return sqr(bx - ax) + sqr(by - ay);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+/*
+var startTime = 0;
+var canvas = null;
+var context = null;
+var res = {};
+var yeti = null;
+var trees = [];
+var sprites = [];
+
+function main()
+{
+	startTime = Date.now();
+	canvas = document.getElementById("canvas");
+	context = canvas.getContext("2d");
+
+	canvas.width = canvas.offsetWidth;
+	canvas.height = canvas.offsetHeight;
+
+	res["yeti-0"] = document.getElementById("yeti-0");
+	res["yeti-1"] = document.getElementById("yeti-1");
+	res["tree"] = document.getElementById("tree");
+
+	yeti = new Sprite(res["yeti-0"], 14, 28);
+	yeti.xdest = 0;
+	yeti.xnorm = 0;
+
+	for (var i = 0; i < 200; i++)
+		trees.push(new Sprite(res["tree"], 16, 63));
+
+	sprites.cmpfn = function(a, b) { return a.y - b.y; }
+
+	window.addEventListener("devicemotion", on_motion);
+	window.addEventListener("touchstart", function(e) {e.preventDefault()});
+
+	requestAnimationFrame(update);
+}
+
+function on_motion(event)
+{
+	var rot = event.rotationRate.beta;
+
+	if (Math.abs(rot * 0.01) > 0.001)
+		yeti.xdest = clamp(yeti.xnorm + rot * 0.01, -1, 1);
+}
+
+function update()
+{
+	var t = Date.now();
+	var w = canvas.offsetWidth;
+	var h = canvas.offsetHeight;
+
+	// clear all sprites
+
+	for (var i = 0, L = sprites.length; i < L; i++)
+		sprites.pop();
+
+	// update yeti
+
+	yeti.xnorm += (yeti.xdest - yeti.xnorm) * 0.15;
+	yeti.image = res["yeti-" + Math.floor((t % 300) / (300/2))];
+	yeti.x = clamp(yeti.xnorm * w/2 + w/2, 16, w - 16);
+	yeti.y = 40 + (t - startTime) * 0.25;
+
+	sprites.push(yeti);
+
+	// update trees
+
+	var dist = yeti.y;
+	var iTree = 0;
+	var nTrees = trees.length;
+
+	for (var y = Math.floor(dist/80) * 80; y < dist + h + 64; y += 80)
+	{
+		for (var x = 40; x < w; x += 80)
+		{
+			var rnd = noise(x, y);
+
+			if (Math.abs(rnd) < 0.5)
+			{
+				var tree = null;
+
+				if (iTree < nTrees)
+				{
+					tree = trees[iTree++];
+				}
+				else
+				{
+					trees.push(new Sprite(res["tree"], 16, 63));
+					tree = trees[nTrees++];
+					iTree++;
+				}
+
+				tree.x = x + 20 * rnd * 5;
+				tree.y = y + 20 * rnd * 5;
+
+				sprites.push(tree);
+			}
+		}
+	}
+
+	// draw
+
+	sprites.sort(sprites.cmpfn);
+
+	context.save();
+	context.fillStyle = "#FFF";
+	context.fillRect(0, 0, w, h);
+	context.translate(0, -(yeti.y - 40));
+
+	for (var i = 0, L = sprites.length; i < L; i++)
+	{
+		var s = sprites[i];
+		context.drawImage(s.image, s.x - s.cx, s.y - s.cy);
+	}
+
+	context.restore();
+	requestAnimationFrame(update);
+}
+
+function Sprite(image, cx, cy)
+{
+	this.x = 0;
+	this.y = 0;
+	this.cx = cx;
+	this.cy = cy;
+	this.image = image;
+}
+
+function clamp(x, a, b)
+{
+	return Math.min(b, Math.max(a, x));
+}
+
+function sign(x)
+{
+	return x < 0 ? -1 : 1;
+}
+
+function noise(x, y)
+{
+	return (Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1;
+}
+*/
+</script>
+</body>
+</html>

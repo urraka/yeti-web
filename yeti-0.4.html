@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta http-equiv="Content-type" content="text/html; charset=utf-8" />
+	<meta name="viewport" content="user-scalable=no">
+	<title>yeti</title>
+	<style type="text/css">
+		html,body,canvas { margin: 0; padding: 0; width: 100%; height: 100%; }
+		body { background: #CCC; }
+		img { position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; }
+		canvas {
+			display: block;
+			width: 56.33vh;
+			height: 100vh;
+			max-height: 100vh;
+			max-width: 56.33vh;
+			margin: auto;
+			position: absolute;
+			top:0;
+			bottom:0;
+			left:0;
+			right:0;
+		}
+	</style>
+</head>
+<body onload="main()">
+
+<canvas id="canvas"></canvas>
+
+<img src="yeti-0.png"           center="14,40" />
+<img src="yeti-1.png"           center="14,40" />
+<img src="yeti-crash2.png"      center="13,38" />
+<img src="yeti-break.png"       center="15,40" />
+<img src="yeti-break-left.png"  center="15,40" />
+<img src="yeti-break-right.png" center="15,40" />
+<img src="eating-left-1.png"    center="13,38" />
+<img src="eating-left-2.png"    center="13,38" />
+<img src="eating-left-3.png"    center="13,38" />
+<img src="eating-left-4.png"    center="13,38" />
+<img src="eating-left-5.png"    center="13,38" />
+<img src="eating-left-6.png"    center="13,38" />
+<img src="eating-right-1.png"   center="13,38" />
+<img src="eating-right-2.png"   center="13,38" />
+<img src="eating-right-3.png"   center="13,38" />
+<img src="eating-right-4.png"   center="13,38" />
+<img src="eating-right-5.png"   center="13,38" />
+<img src="eating-right-6.png"   center="13,38" />
+<img src="tree.png"             center="16,63" />
+<img src="skiman.png"           center="11,24" />
+<img src="skiman-dead.png"      center="11,24" />
+<img src="flag-left.png"        center="6,24" />
+<img src="flag-right.png"       center="6,24" />
+
+<script>
+
+function main()
+{
+	on_resize();
+
+	var images = document.getElementsByTagName("img");
+
+	for (var i = 0; i < images.length; i++)
+	{
+		var id = images[i].attributes["src"].value.split(".")[0];
+		var center = images[i].attributes["center"].value.split(",");
+
+		images[i].cx = parseInt(center[0]);
+		images[i].cy = parseInt(center[1]);
+
+		res(id, images[i]);
+	}
+
+	var game = Game();
+	var t0 = time();
+
+	function frame()
+	{
+		var t1 = time();
+		var dt = t1 - t0;
+
+		if (dt < 0.25)
+			game.update(dt);
+
+		t0 = t1;
+		requestAnimationFrame(frame);
+	}
+
+	function on_resize(event)
+	{
+		var canvas = document.getElementById("canvas");
+		canvas.width = canvas.offsetWidth;
+		canvas.height = canvas.offsetHeight;
+
+		var ctx = canvas.getContext("2d");
+
+		ctx.mozImageSmoothingEnabled = false;
+		ctx.webkitImageSmoothingEnabled = false;
+		ctx.msImageSmoothingEnabled = false;
+		ctx.imageSmoothingEnabled = false;
+	}
+
+	window.addEventListener("resize", on_resize);
+	window.addEventListener("devicemotion", game.event);
+	window.addEventListener("mousedown", game.event);
+	window.addEventListener("mouseup", game.event);
+	window.addEventListener("mousemove", game.event);
+	window.addEventListener("touchend", game.event);
+	window.addEventListener("touchstart", function(e) { game.event(e); e.preventDefault(); });
+
+	requestAnimationFrame(frame);
+}
+
+function Game()
+{
+	var canvas = document.getElementById("canvas");
+	var context = canvas.getContext("2d");
+	var scene = Scene(canvas);
+
+	function scale() { return canvas.width / 200; }
+	function width() { return canvas.width / scale(); }
+	function height() { return canvas.height / scale(); }
+
+	var objects = [];
+	var yeti = Yeti();
+
+	var grid_size = 80;
+	var initial_spawn_cell = Math.ceil(height() / grid_size);
+	var spawn_index = initial_spawn_cell;
+	var flagdist = 6 * parseInt(url_query_value("flag_mult", "1"));
+
+	var points = 0;
+
+	return {
+		update: function(dt)
+		{
+			var w = width();
+			var h = height();
+
+			yeti.update(dt, w, h);
+
+			points = Math.floor(Math.floor(yeti.y / grid_size) / flagdist);
+			points = Math.max(points, 0);
+
+			for (var i = 0, L = objects.length; i < L; i++)
+			{
+				if (objects[i].y >= (yeti.y - 100))
+				{
+					if (i > 0)
+						objects = objects.slice(i);
+
+					break;
+				}
+			}
+
+			var max_index = Math.ceil((h + yeti.y) / grid_size);
+
+			while (spawn_index <= max_index)
+			{
+				var y = spawn_index * grid_size;
+
+				for (var x = grid_size/2; x < w; x += grid_size)
+				{
+					var rnd = noise(x, y);
+
+					if (Math.abs(rnd) < 0.04)
+					{
+						var skiman = new Sprite();
+						skiman.type = "skiman";
+						skiman.image = res("skiman");
+						skiman.x = Math.floor(x + 20 * rnd * 5 - w/2);
+						skiman.y = Math.floor(y + 20 * rnd * 5);
+						objects.push(skiman);
+					}
+					else if (Math.abs(rnd) < 0.5)
+					{
+						var tree = new Sprite();
+						tree.type = "tree";
+						tree.image = res("tree");
+						tree.x = Math.floor(x + 20 * rnd * 5 - w/2);
+						tree.y = Math.floor(y + 20 * rnd * 5);
+						objects.push(tree);
+					}
+				}
+
+				if (spawn_index % flagdist === 0)
+				{
+					var hw = w/2;
+
+					for (var x = -hw + 20; x < hw; x += w - 40)
+					{
+						var flag = new Sprite();
+						flag.type = "flag";
+						flag.image = res(x > 0 ? "flag-right" : "flag-left");
+						flag.x = x;
+						flag.y = y;
+						objects.push(flag);
+					}
+				}
+
+				spawn_index++;
+			}
+
+			for (var i = 0, L = objects.length; i < L; i++)
+			{
+				if (!objects[i].image)
+					continue;
+
+				if (dist2(yeti.x, yeti.y, objects[i].x, objects[i].y) < 100)
+				{
+					yeti.collision(objects[i]);
+					break;
+				}
+			}
+
+			// points = Math.floor(yeti.y / 100);
+
+			var s = scale();
+
+			scene.add(yeti);
+			scene.add(objects);
+			scene.draw(0, yeti.y - 50, s);
+
+			context.save();
+			context.scale(s, s);
+			context.lineWidth = 15 / s;
+			context.fillStyle = "#FFF";
+			context.strokeStyle = "#000";
+			context.font = "bold 30px Verdana";
+			context.textAlign = "center";
+			context.textBaseline = "bottom";
+			context.strokeText(points, w/2, h - 0.3*h);
+			context.fillText(points, w/2, h - 0.3*h);
+			context.restore();
+		},
+
+		event: function(event)
+		{
+			switch (event.type)
+			{
+				case "devicemotion":
+					yeti.on_motion(event);
+					break;
+
+				case "touchstart":
+				case "mousedown":
+				{
+					if (yeti.state === "dead")
+					{
+						points = 0;
+						yeti.init();
+						objects = [];
+						spawn_index = initial_spawn_cell;
+					}
+					else
+					{
+						yeti.on_break(true);
+					}
+				}
+				break;
+
+				case "touchend":
+				case "mouseup":
+					yeti.on_break(false);
+					break;
+
+				case "mousemove":
+				{
+					var x = clamp(event.pageX - canvas.offsetLeft, 0, canvas.width);
+					yeti.on_mousemove({normX: x / canvas.width});
+				}
+				break;
+			}
+		}
+	};
+}
+
+function Yeti()
+{
+	var self = new Sprite();
+
+	self.state = "running";
+
+	var xdest = 0;
+	var xnorm = 0;
+	var acceleration = 250;
+	var speed = 500;
+	var maxspeed = 500;
+	var frame = 0;
+	var eating = false;
+	var breaking = false;
+	var eatstart = 0;
+	var boosttime = 0;
+	var deadframe = res("yeti-crash2");
+	var breakframe = res("yeti-break");
+	var breaklframe = res("yeti-break-left");
+	var breakrframe = res("yeti-break-right");
+	var runframes = [res("yeti-0"), res("yeti-1")];
+	var eatframes = [
+		[res("eating-left-1"), res("eating-right-1")],
+		[res("eating-left-2"), res("eating-right-2")],
+		[res("eating-left-3"), res("eating-right-3")],
+		[res("eating-left-4"), res("eating-right-4")],
+		[res("eating-left-5"), res("eating-right-5")],
+		[res("eating-left-6"), res("eating-right-6")],
+		[res("eating-left-5"), res("eating-right-5")],
+		[res("eating-left-6"), res("eating-right-6")],
+		[res("eating-left-5"), res("eating-right-5")],
+		[res("eating-left-6"), res("eating-right-6")],
+		[res("eating-left-5"), res("eating-right-5")],
+		[res("eating-left-6"), res("eating-right-6")]
+	];
+
+	self.init = function()
+	{
+		self.state = "running";
+		self.y = 0;
+		xdest = 0;
+		xnorm = 0;
+		speed = 500;
+		maxspeed = 500;
+		frame = 0;
+		eating = false;
+		breaking = false;
+		eatstart = 0;
+		boosttime = 0;
+	}
+
+	self.on_break = function(value)
+	{
+		breaking = value;
+		self.image = breakframe;
+	}
+
+	self.on_mousemove = function(event)
+	{
+		if (self.state !== "running")
+			return;
+
+		xdest = event.normX * 2 - 1;
+	}
+
+	self.on_motion = function(event)
+	{
+		if (self.state !== "running")
+			return;
+
+		var rot = event.rotationRate.beta;
+
+		if (Math.abs(rot * 0.01) > 0.001)
+			xdest = clamp(xnorm + rot * 0.01, -1, 1);
+	}
+
+	self.update = function(dt, w, h)
+	{
+		switch (self.state)
+		{
+			case "running":
+			{
+				if (boosttime > 0)
+				{
+					boosttime -= dt;
+
+					if (boosttime <= 0)
+						maxspeed = 500;
+				}
+
+				xnorm += (xdest - xnorm) * 0.15;
+
+				var hw = w / 2;
+				var x = clamp(xnorm * hw, -(hw - 16), hw - 16);
+				var dx = x - self.x;
+
+				if (speed > maxspeed || breaking)
+				{
+					var acc = acceleration;
+
+					if (breaking)
+						acc += dx;
+
+					speed = Math.max(breaking ? 300 : maxspeed, speed - acc * dt);
+				}
+				else
+					speed = Math.min(maxspeed, speed + acceleration * dt);
+
+				var dy = speed * dt;
+
+				self.x = x;
+				self.y += dy;
+
+				if (eating && !breaking)
+				{
+					frame = (frame + 10 * dt);
+					var eatframe = frame - eatstart;
+
+					if ((eatframe|0) < eatframes.length)
+						self.image = eatframes[eatframe|0][(frame % 2)|0];
+					else
+						eating = false;
+				}
+				else if (breaking)
+				{
+					eating = false;
+
+					var alpha = 3;
+
+					if (dx > alpha)
+						self.image = breakrframe;
+					else if (dx < -alpha)
+						self.image = breaklframe;
+					else if (Math.abs(dx) < 0.5)
+						self.image = breakframe;
+				}
+				else
+				{
+					frame = (frame + 10 * dt) % 2;
+					self.image = runframes[frame|0];
+				}
+			}
+			break;
+
+			case "dead":
+			{
+				var hw = w / 2;
+				self.x = clamp(xnorm * hw, -(hw - 16), hw - 16);
+				self.image = deadframe;
+			}
+			break;
+		}
+	}
+
+	self.collision = function(object)
+	{
+		switch (object.type)
+		{
+			case "tree":
+			{
+				speed = 0;
+
+				if (self.y >= object.y)
+					self.y = object.y - 1;
+
+				xdest = xnorm;
+				self.state = "dead";
+			}
+			break;
+
+			case "skiman":
+			{
+				if (!breaking)
+				{
+					object.image = null;
+					eatstart = frame;
+					eating = true;
+					maxspeed += 75;
+					boosttime = 3;
+				}
+				else
+				{
+					object.image = res("skiman-dead");
+				}
+			}
+			break;
+		}
+	}
+
+	return self;
+}
+
+function Sprite()
+{
+	this.x = 0;
+	this.y = 0;
+	this.image = null;
+}
+
+function Scene(canvas)
+{
+	var context = canvas.getContext("2d");
+	var sprites = [];
+
+	function cmp(a, b)
+	{
+		return a.y - b.y;
+	}
+
+	return {
+		add: function(x)
+		{
+			if (x instanceof Array)
+			{
+				var N = x.length;
+
+				for (var i = 0; i < N; i++)
+					sprites.push(x[i]);
+			}
+			else
+			{
+				sprites.push(x);
+			}
+		},
+
+		draw: function(x, y, scale)
+		{
+			var L = sprites.length;
+			var w = canvas.width;
+			var h = canvas.height;
+
+			sprites.sort(cmp);
+
+			context.save();
+			context.fillStyle = "#FFF";
+			context.fillRect(0, 0, w, h);
+			context.translate(Math.floor(w/2 - x), 0);
+			context.scale(scale, scale);
+			context.translate(0, -y);
+
+			for (var i = 0; i < L; i++)
+			{
+				var s = sprites[i];
+
+				if (s.image)
+					context.drawImage(s.image, s.x - s.image.cx, s.y - s.image.cy);
+			}
+
+			context.restore();
+
+			for (var i = 0; i < L; i++)
+				sprites.pop();
+		}
+	};
+}
+
+function res(id, value)
+{
+	if (value)
+	{
+		res.items = res.items || {};
+		res.items[id] = value;
+	}
+	else
+	{
+		return res.items[id];
+	}
+}
+
+function time()
+{
+	return Date.now() / 1000;
+}
+
+function clamp(x, a, b)
+{
+	return Math.min(b, Math.max(a, x));
+}
+
+function sign(x)
+{
+	return x < 0 ? -1 : 1;
+}
+
+function noise(x, y)
+{
+	return (Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1;
+}
+
+function sqr(x)
+{
+	return x*x;
+}
+
+function dist2(ax, ay, bx, by)
+{
+	return sqr(bx - ax) + sqr(by - ay);
+}
+
+function url_query_value(name, def)
+{
+	if (!url_query_value.params)
+	{
+		var qs = location.search.split("+").join(" ");
+
+		var params = {};
+		var re = /[?&]?([^=]+)=([^&]*)/g;
+		var tokens;
+
+		while (tokens = re.exec(qs))
+			params[decodeURIComponent(tokens[1])] = decodeURIComponent(tokens[2]);
+
+		url_query_value.params = params;
+	}
+
+	if (name in url_query_value.params)
+		return url_query_value.params[name];
+	else
+		return def;
+}
+
+</script>
+</body>
+</html>

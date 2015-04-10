@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta http-equiv="Content-type" content="text/html; charset=utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+	<link rel="icon" href="icon.png" type="image/png" />
+	<title>yeti - select map</title>
+	<style>
+		html,body { margin: 0; padding: 0; width: 100%; height: 100%; }
+		body { background: #CCC; }
+
+		.list {
+			z-index: 10;
+			width: 70vh;
+			max-width: 100%;
+			height: 100%;
+			margin: auto;
+			position: absolute;
+			top: 0;
+			bottom: 0;
+			left:0;
+			right:0;
+			overflow-y: auto;
+			-webkit-overflow-scrolling: touch;
+		}
+
+		.list-header {
+			background: white;
+			height: 1.5cm;
+			line-height: 1.5cm;
+			padding-left: 0.2cm;
+			font-size: 0.8cm;
+			font-family: Verdana;
+			border-bottom: 1px solid #CCC;
+			box-sizing: border-box;
+		}
+
+		.list-header a {
+			text-decoration: none;
+			color: #000;
+			-webkit-tap-highlight-color: rgba(0,0,0,0);
+		}
+
+		.list-entries {
+			background: white;
+			position: absolute;
+			top: 1.5cm;
+			bottom: 0;
+			left: 0;
+			right: 0;
+			overflow-y: auto;
+			-webkit-overflow-scrolling: touch;
+		}
+
+		.list-entries:before {
+			content: "";
+			position: absolute;
+			top: -1.5cm;
+			bottom: -1px;
+			width: 1px;
+		}
+
+		.list-entry {
+			border-bottom: 1px solid #CCC;
+		}
+
+		.list-entry a {
+			display: block;
+			font-family: Arial;
+			color: blue;
+			text-decoration: none;
+			font-size: 0.5cm;
+			padding: 0 0.2cm;
+			margin: 0.2cm 0;
+			width: 100%;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+			box-sizing: border-box;
+			outline: none;
+		}
+
+		.list-entry span {
+			display: block;
+			font-family: Arial;
+			color: #999;
+			font-size: 0.5cm;
+			padding: 0 0.2cm;
+			margin: 0.2cm 0;
+			width: 100%;
+			box-sizing: border-box;
+		}
+	</style>
+</head>
+<body>
+	<div class="list">
+		<div class="list-header">Maps</div>
+		<div class="list-entries"></div>
+	</div>
+	<script>
+		function yeti_maplist(data)
+		{
+			var entries = document.querySelector(".list-entries");
+			var version = url_query_value("ver", null);
+
+			if (version === null)
+				alert("Missing yeti version parameter.");
+
+			for (var i = 0; i < data.length; i++)
+			{
+				var item = document.createElement("div");
+				var link = document.createElement("a");
+				var params = "map=" + encodeURIComponent(data[i]) + "&" + location.search.slice(1);
+
+				item.classList.add("list-entry");
+				item.appendChild(link);
+
+				link.setAttribute("href", "yeti-" + version + ".html?" + params);
+				link.textContent = data[i];
+
+				entries.appendChild(item);
+			}
+		}
+
+		function url_query_value(name, def)
+		{
+			if (!url_query_value.params)
+			{
+				var qs = location.search.split("+").join(" ");
+
+				var params = {};
+				var re = /[?&]?([^=]+)=([^&]*)/g;
+				var tokens;
+
+				while (tokens = re.exec(qs))
+					params[decodeURIComponent(tokens[1])] = decodeURIComponent(tokens[2]);
+
+				url_query_value.params = params;
+			}
+
+			if (name in url_query_value.params)
+				return url_query_value.params[name];
+			else
+				return def;
+		}
+
+		window.addEventListener("touchstart", function(e) {
+			e.preventDefault();
+		});
+
+		document.querySelector(".list-entries").addEventListener("touchstart", function(e) {
+			e.stopPropagation();
+		});
+	</script>
+	<script type="text/javascript" src="editor-files/maplist.js"></script>
+</body>
+</html>

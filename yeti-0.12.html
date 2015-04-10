@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta http-equiv="Content-type" content="text/html; charset=utf-8" />
+	<meta name="viewport" content="user-scalable=no">
+	<title>yeti</title>
+	<style type="text/css">
+		html,body,canvas { margin: 0; padding: 0; width: 100%; height: 100%; }
+		body { background: #CCC; }
+		#images { position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; }
+		canvas {
+			display: block;
+			width: 70vh;
+			height: 100vh;
+			/*max-height: 100vh;*/
+			max-width: 100%;
+			margin: auto;
+			position: absolute;
+			top:0;
+			bottom:0;
+			left:0;
+			right:0;
+		}
+	</style>
+</head>
+<body onload="main()">
+
+<canvas id="canvas"></canvas>
+
+<div id="images">
+<img src="yeti-0.png"           center="14,40" />
+<img src="yeti-1.png"           center="14,40" />
+<img src="yeti-crash2.png"      center="13,38" />
+<img src="yeti-break.png"       center="15,40" />
+<img src="yeti-break-left.png"  center="15,40" />
+<img src="yeti-break-right.png" center="15,40" />
+<img src="yeti-berried.png"     center="16,39" />
+<img src="eating-5.png"         center="13,38" />
+<img src="eating-6.png"         center="13,38" />
+<img src="eating-left-1.png"    center="13,38" />
+<img src="eating-left-2.png"    center="13,38" />
+<img src="eating-left-3.png"    center="13,38" />
+<img src="eating-left-4.png"    center="13,38" />
+<img src="eating-left-5.png"    center="13,38" />
+<img src="eating-left-6.png"    center="13,38" />
+<img src="eating-right-1.png"   center="13,38" />
+<img src="eating-right-2.png"   center="13,38" />
+<img src="eating-right-3.png"   center="13,38" />
+<img src="eating-right-4.png"   center="13,38" />
+<img src="eating-right-5.png"   center="13,38" />
+<img src="eating-right-6.png"   center="13,38" />
+<img src="tree.png"             center="16,63" />
+<img src="skiman.png"           center="11,24" />
+<img src="skiman-dead.png"      center="11,24" />
+<img src="flag-left.png"        center="6,24" />
+<img src="flag-right.png"       center="6,24" />
+<img src="flag-points-green.png"center="0,0" />
+<img src="rock.png"             center="11,11" />
+</div>
+
+<script>
+
+function main()
+{
+	on_resize();
+
+	var images = document.getElementsByTagName("img");
+
+	for (var i = 0; i < images.length; i++)
+	{
+		var id = images[i].attributes["src"].value.split(".")[0];
+		var center = images[i].attributes["center"].value.split(",");
+
+		images[i].cx = parseInt(center[0]);
+		images[i].cy = parseInt(center[1]);
+
+		res(id, images[i]);
+	}
+
+	var game = Game();
+	var t0 = time();
+
+	function frame()
+	{
+		var t1 = time();
+		var dt = t1 - t0;
+
+		if (dt < 0.25)
+			game.update(dt);
+
+		t0 = t1;
+		requestAnimationFrame(frame);
+	}
+
+	function on_resize(event)
+	{
+		var canvas = document.getElementById("canvas");
+		canvas.width = canvas.offsetWidth;
+		canvas.height = canvas.offsetHeight;
+
+		var ctx = canvas.getContext("2d");
+
+		ctx.mozImageSmoothingEnabled = false;
+		ctx.webkitImageSmoothingEnabled = false;
+		ctx.msImageSmoothingEnabled = false;
+		ctx.imageSmoothingEnabled = false;
+	}
+
+	window.addEventListener("resize", on_resize);
+	window.addEventListener("devicemotion", game.event);
+	window.addEventListener("mousedown", game.event);
+	window.addEventListener("mouseup", game.event);
+	window.addEventListener("mousemove", game.event);
+	window.addEventListener("touchend", game.event);
+	window.addEventListener("touchstart", function(e) { game.event(e); e.preventDefault(); });
+
+	requestAnimationFrame(frame);
+}
+
+function Game()
+{
+	var canvas = document.getElementById("canvas");
+	var context = canvas.getContext("2d");
+	var scene = Scene(canvas);
+
+	var view_width = parseInt(url_query_value("view_width", "240"));
+
+	function scale() { return canvas.width / view_width; }
+	function width() { return canvas.width / scale(); }
+	function height() { return canvas.height / scale(); }
+
+	var objects = [];
+	var yeti = Yeti();
+
+	var grid_size = 80;
+	var initial_spawn_cell = Math.ceil(height() / grid_size);
+	var spawn_index = initial_spawn_cell;
+	var flagdist = 6;
+	var yeti_offset = 100;
+
+	var points = 0;
+	var points_flash_timer = 0;
+	var points_flash_duration = 1.5;
+	var flash_color = {r: 1, g: 1, b: 1};
+	var flash_color_end = {r: 1, g: 1, b: 1};
+	var flash_color_start = function() {
+		var color = url_query_value("flash_color", "1,1,0").split(",");
+
+		return {
+			r: parseFloat(color[0]),
+			g: parseFloat(color[1]),
+			b: parseFloat(color[2])
+		};
+	}();
+
+	var checkpoint_mode = url_query_value("checkpoint_mode", "rocks");
+
+	return {
+		update: function(dt)
+		{
+			var w = width();
+			var h = height();
+
+			yeti.update(dt, w, h);
+
+			var prevPoints = points;
+			points = Math.floor(Math.floor(yeti.y / grid_size) / flagdist);
+			points = Math.max(points, 0);
+
+			if (points > prevPoints)
+				points_flash_timer = points_flash_duration;
+
+			for (var i = 0, L = objects.length; i < L; i++)
+			{
+				if (objects[i].y >= (yeti.y - yeti_offset - 50))
+				{
+					if (i > 0)
+						objects = objects.slice(i);
+
+					break;
+				}
+			}
+
+			var max_index = Math.ceil((h + yeti.y) / grid_size);
+
+			while (spawn_index <= max_index)
+			{
+				var y = spawn_index * grid_size;
+
+				for (var x = grid_size/2; x < w; x += grid_size)
+				{
+					var rnd = noise(x, y);
+
+					if (Math.abs(rnd) < 0.04)
+					{
+						var skiman = new Sprite();
+						skiman.type = "skiman";
+						skiman.image = res("skiman");
+						skiman.x = Math.floor(x + 20 * rnd * 5 - w/2);
+						skiman.y = Math.floor(y + 20 * rnd * 5);
+						objects.push(skiman);
+					}
+					else if (Math.abs(rnd) < 0.5)
+					{
+						var tree = new Sprite();
+						tree.type = "tree";
+						tree.image = res("tree");
+						tree.x = Math.floor(x + 20 * rnd * 5 - w/2);
+						tree.y = Math.floor(y + 20 * rnd * 5);
+						objects.push(tree);
+					}
+				}
+
+				if (spawn_index % flagdist === 0)
+				{
+					var hw = w/2;
+
+					for (var x = -hw + 20; x < hw; x += w - 40)
+					{
+						var flag = new Sprite();
+						flag.type = "flag";
+						flag.image = res(x > 0 ? "flag-right" : "flag-left");
+						flag.x = x;
+						flag.y = y;
+						objects.push(flag);
+					}
+
+					switch (checkpoint_mode)
+					{
+						case "skiman":
+						{
+							for (var x = -hw + 40; x < hw - 25; x += 20)
+							{
+								var skiman = new Sprite();
+								skiman.type = "dumbskiman";
+								skiman.image = res("skiman");
+								skiman.x = x;
+								skiman.y = y;
+								objects.push(skiman);
+							}
+						}
+						break;
+
+						case "rocks":
+						{
+							var gap_width = 80;
+							var gap_start = noise(1, y) * (hw - 20 - gap_width/2) - gap_width/2;
+
+							for (var x = -hw + 40; x < hw - 25; x += 20)
+							{
+								if (x >= gap_start && x <= gap_start + gap_width)
+									continue;
+
+								var rock = new Sprite();
+								rock.type = "rock";
+								rock.image = res("rock");
+								rock.x = x;
+								rock.y = y;
+								objects.push(rock);
+							}
+						}
+						break;
+
+						case "rocks_and_skiman":
+						{
+							var gap_width = 80;
+							var gap_start = noise(1, y) * (hw - 20 - gap_width/2) - gap_width/2;
+
+							for (var x = -hw + 40; x < hw - 25; x += 20)
+							{
+								if (x >= gap_start && x <= gap_start + gap_width)
+								{
+									var skiman = new Sprite();
+									skiman.type = "dumbskiman";
+									skiman.image = res("skiman");
+									skiman.x = x;
+									skiman.y = y;
+									objects.push(skiman);
+								}
+								else
+								{
+									var rock = new Sprite();
+									rock.type = "rock";
+									rock.image = res("rock");
+									rock.x = x;
+									rock.y = y;
+									objects.push(rock);
+								}
+							}
+						}
+						break;
+					}
+				}
+
+				spawn_index++;
+			}
+
+			for (var i = 0, L = objects.length; i < L; i++)
+			{
+				if (!objects[i].image)
+					continue;
+
+				if (dist2(yeti.x, yeti.y, objects[i].x, objects[i].y) < 100)
+				{
+					yeti.collision(objects[i]);
+					break;
+				}
+			}
+
+			var s = scale();
+
+			scene.add(yeti);
+			scene.add(objects);
+			scene.draw(0, yeti.y - yeti_offset, s);
+
+			flash_color.r = flash_color_end.r;
+			flash_color.g = flash_color_end.g;
+			flash_color.b = flash_color_end.b;
+
+			if (yeti.state === "dead")
+				points_flash_timer = 0;
+
+			if (points_flash_timer > 0)
+			{
+				var percent = 0;
+				var full_time = 0.2;
+
+				if (points_flash_timer < points_flash_duration - full_time)
+				{
+					var t = points_flash_duration - points_flash_timer - full_time;
+					percent = Easing.out_expo(t, 0, 1, points_flash_duration - full_time);
+				}
+
+				flash_color.r = lerp(flash_color_start.r, flash_color_end.r, percent);
+				flash_color.g = lerp(flash_color_start.g, flash_color_end.g, percent);
+				flash_color.b = lerp(flash_color_start.b, flash_color_end.b, percent);
+
+				points_flash_timer -= dt;
+			}
+
+			var text_color = "rgb(" +
+				Math.floor(255 * flash_color.r) + "," +
+				Math.floor(255 * flash_color.g) + "," +
+				Math.floor(255 * flash_color.b) +
+			")";
+
+			context.save();
+			context.scale(s, s);
+			context.lineWidth = 15 / s;
+			context.font = "bold 57px Verdana";
+			context.textAlign = "left";
+			context.textBaseline = "middle";
+
+			var flag = res("flag-points-green");
+			var textWidth = context.measureText(points).width;
+			var pointsWidth = textWidth + flag.width;
+			var x = 0.5 * (w - pointsWidth);
+
+			var base_y = 0;
+
+			if (yeti.state === "dead")
+			{
+				base_y = 0.35 * h;
+
+				context.fillStyle = "#FFF";
+				context.strokeStyle = "#000";
+				context.fillRect(20, base_y - 20, w - 40, 100);
+				context.strokeRect(20, base_y - 20, w - 40, 100);
+			}
+
+			context.fillStyle = text_color;
+			context.strokeStyle = "#000";
+			context.strokeText(points, x, 0.5 * 57 - 3 + base_y);
+			context.fillText(points, x, 0.5 * 57 - 3 + base_y);
+			context.drawImage(flag, x + textWidth + 5, 2 + base_y);
+			context.restore();
+		},
+
+		event: function(event)
+		{
+			switch (event.type)
+			{
+				case "devicemotion":
+					yeti.on_motion(event);
+					break;
+
+				case "touchstart":
+				case "mousedown":
+				{
+					if (yeti.state === "waiting")
+					{
+						yeti.on_start();
+					}
+					else if (yeti.state === "dead")
+					{
+						points = 0;
+						yeti.init();
+						objects = [];
+						spawn_index = initial_spawn_cell;
+						points_flash_timer = 0;
+					}
+					else
+					{
+						yeti.on_break(true);
+					}
+				}
+				break;
+
+				case "touchend":
+				case "mouseup":
+					yeti.on_break(false);
+					break;
+
+				case "mousemove":
+				{
+					var x = clamp(event.pageX - canvas.offsetLeft, 0, canvas.width);
+					yeti.on_mousemove({normX: x / canvas.width});
+				}
+				break;
+			}
+		}
+	};
+}
+
+function Yeti()
+{
+	var self = new Sprite();
+
+	self.state = "running";
+
+	var base_speed = parseInt(url_query_value("base_speed", "500"));
+	var min_speed = parseInt(url_query_value("min_speed", "300"));
+	var speed_boost = parseInt(url_query_value("speed_boost", "75"));
+	var boost_duration = parseFloat(url_query_value("boost_duration", "3"));
+	var accel = parseInt(url_query_value("accel", "250"));
+
+	var xdest = 0;
+	var xnorm = 0;
+	var acceleration = accel;
+	var speed = base_speed;
+	var maxspeed = base_speed;
+	var frame = 0;
+	var eating = false;
+	var breaking = false;
+	var eatstart = 0;
+	var boosttime = 0;
+	var deadframe = res("yeti-crash2");
+	var breakframe = res("yeti-break");
+	var breaklframe = res("yeti-break-left");
+	var breakrframe = res("yeti-break-right");
+	var runframes = [res("yeti-0"), res("yeti-1")];
+	var waitframes = [res("eating-5"), res("eating-6")];
+
+	var eatframes = [
+		[res("eating-left-1"), res("eating-right-1")],
+		[res("eating-left-2"), res("eating-right-2")],
+		[res("eating-left-3"), res("eating-right-3")],
+		[res("eating-left-4"), res("eating-right-4")],
+		[res("eating-left-5"), res("eating-right-5")],
+		[res("eating-left-6"), res("eating-right-6")],
+		[res("eating-left-5"), res("eating-right-5")],
+		[res("eating-left-6"), res("eating-right-6")],
+		[res("eating-left-5"), res("eating-right-5")],
+		[res("eating-left-6"), res("eating-right-6")],
+		[res("eating-left-5"), res("eating-right-5")],
+		[res("eating-left-6"), res("eating-right-6")]
+	];
+
+	self.init = function()
+	{
+		self.state = "waiting";
+		self.x = 0;
+		self.y = 0;
+		xdest = 0;
+		xnorm = 0;
+		speed = base_speed;
+		maxspeed = base_speed;
+		frame = 0;
+		eating = false;
+		breaking = false;
+		eatstart = 0;
+		boosttime = 0;
+	}
+
+	self.init();
+
+	self.on_start = function()
+	{
+		self.state = "running";
+	}
+
+	self.on_break = function(value)
+	{
+		breaking = value;
+		self.image = breakframe;
+	}
+
+	self.on_mousemove = function(event)
+	{
+		if (self.state !== "running")
+			return;
+
+		xdest = event.normX * 2 - 1;
+	}
+
+	self.on_motion = function(event)
+	{
+		if (self.state !== "running")
+			return;
+
+		var rot = event.rotationRate.beta;
+
+		if (Math.abs(rot * 0.01) > 0.001)
+			xdest = clamp(xnorm + rot * 0.01, -1, 1);
+	}
+
+	self.update = function(dt, w, h)
+	{
+		switch (self.state)
+		{
+			case "running":
+			{
+				if (boosttime > 0)
+				{
+					boosttime -= dt;
+
+					if (boosttime <= 0)
+						maxspeed = base_speed;
+				}
+
+				xnorm += (xdest - xnorm) * 0.15;
+
+				var hw = w / 2;
+				var x = clamp(xnorm * hw, -(hw - 16), hw - 16);
+				var dx = x - self.x;
+
+				if (speed > maxspeed || breaking)
+				{
+					var acc = acceleration;
+
+					if (breaking)
+						acc += dx;
+
+					speed = Math.max(breaking ? min_speed : maxspeed, speed - acc * dt);
+				}
+				else
+					speed = Math.min(maxspeed, speed + acceleration * dt);
+
+				var dy = speed * dt;
+
+				self.x = x;
+				self.y += dy;
+
+				if (eating && !breaking)
+				{
+					frame = (frame + 10 * dt);
+					var eatframe = frame - eatstart;
+
+					if ((eatframe|0) < eatframes.length)
+						self.image = eatframes[eatframe|0][(frame % 2)|0];
+					else
+						eating = false;
+				}
+				else if (breaking)
+				{
+					eating = false;
+
+					var alpha = 3;
+
+					if (dx > alpha)
+						self.image = breakrframe;
+					else if (dx < -alpha)
+						self.image = breaklframe;
+					else if (Math.abs(dx) < 0.5)
+						self.image = breakframe;
+				}
+				else
+				{
+					frame = (frame + 10 * dt) % 2;
+					self.image = runframes[frame|0];
+				}
+			}
+			break;
+
+			case "waiting":
+			{
+				frame = (frame + 10 * dt) % 2;
+				self.image = waitframes[frame|0];
+			}
+			break;
+		}
+	}
+
+	self.collision = function(object)
+	{
+		switch (object.type)
+		{
+			case "tree":
+			case "rock":
+			case "flag":
+			{
+				speed = 0;
+
+				if (self.y >= object.y)
+					self.y = object.y - 1;
+
+				xdest = xnorm;
+				self.state = "dead";
+				self.image = (object.type === "tree" ? deadframe : res("yeti-berried"));
+			}
+			break;
+
+			case "dumbskiman":
+				object.image = res("skiman-dead");
+				break;
+
+			case "skiman":
+			{
+				if (!breaking)
+				{
+					object.image = null;
+					eatstart = frame;
+					eating = true;
+					maxspeed += speed_boost;
+					boosttime = boost_duration;
+				}
+				else
+				{
+					object.image = res("skiman-dead");
+				}
+			}
+			break;
+		}
+	}
+
+	return self;
+}
+
+function Sprite()
+{
+	this.x = 0;
+	this.y = 0;
+	this.image = null;
+}
+
+function Scene(canvas)
+{
+	var context = canvas.getContext("2d");
+	var sprites = [];
+
+	function cmp(a, b)
+	{
+		return a.y - b.y;
+	}
+
+	return {
+		add: function(x)
+		{
+			if (x instanceof Array)
+			{
+				var N = x.length;
+
+				for (var i = 0; i < N; i++)
+					sprites.push(x[i]);
+			}
+			else
+			{
+				sprites.push(x);
+			}
+		},
+
+		draw: function(x, y, scale)
+		{
+			var L = sprites.length;
+			var w = canvas.width;
+			var h = canvas.height;
+
+			sprites.sort(cmp);
+
+			context.save();
+			context.fillStyle = "#FFF";
+			context.fillRect(0, 0, w, h);
+			context.translate(Math.floor(w/2 - x), 0);
+			context.scale(scale, scale);
+			context.translate(0, -y);
+
+			for (var i = 0; i < L; i++)
+			{
+				var s = sprites[i];
+
+				if (s.image)
+					context.drawImage(s.image, s.x - s.image.cx, s.y - s.image.cy);
+			}
+
+			context.restore();
+
+			for (var i = 0; i < L; i++)
+				sprites.pop();
+		}
+	};
+}
+
+function res(id, value)
+{
+	if (value)
+	{
+		res.items = res.items || {};
+		res.items[id] = value;
+	}
+	else
+	{
+		return res.items[id];
+	}
+}
+
+function time()
+{
+	return Date.now() / 1000;
+}
+
+function clamp(x, a, b)
+{
+	return Math.min(b, Math.max(a, x));
+}
+
+function sign(x)
+{
+	return x < 0 ? -1 : 1;
+}
+
+function noise(x, y)
+{
+	return (Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1;
+}
+
+function sqr(x)
+{
+	return x*x;
+}
+
+function dist2(ax, ay, bx, by)
+{
+	return sqr(bx - ax) + sqr(by - ay);
+}
+
+function lerp(a, b, p)
+{
+	return a + (b - a) * p;
+}
+
+function url_query_value(name, def)
+{
+	if (!url_query_value.params)
+	{
+		var qs = location.search.split("+").join(" ");
+
+		var params = {};
+		var re = /[?&]?([^=]+)=([^&]*)/g;
+		var tokens;
+
+		while (tokens = re.exec(qs))
+			params[decodeURIComponent(tokens[1])] = decodeURIComponent(tokens[2]);
+
+		url_query_value.params = params;
+	}
+
+	if (name in url_query_value.params)
+		return url_query_value.params[name];
+	else
+		return def;
+}
+
+Easing = {
+	in_quad: function (t, b, c, d) {
+		return c*(t/=d)*t + b;
+	},
+	out_quad: function (t, b, c, d) {
+		return -c *(t/=d)*(t-2) + b;
+	},
+	in_out_quad: function (t, b, c, d) {
+		if ((t/=d/2) < 1) return c/2*t*t + b;
+		return -c/2 * ((--t)*(t-2) - 1) + b;
+	},
+	in_cubic: function (t, b, c, d) {
+		return c*(t/=d)*t*t + b;
+	},
+	out_cubic: function (t, b, c, d) {
+		return c*((t=t/d-1)*t*t + 1) + b;
+	},
+	in_out_cubic: function (t, b, c, d) {
+		if ((t/=d/2) < 1) return c/2*t*t*t + b;
+		return c/2*((t-=2)*t*t + 2) + b;
+	},
+	in_quart: function (t, b, c, d) {
+		return c*(t/=d)*t*t*t + b;
+	},
+	out_quart: function (t, b, c, d) {
+		return -c * ((t=t/d-1)*t*t*t - 1) + b;
+	},
+	in_out_quart: function (t, b, c, d) {
+		if ((t/=d/2) < 1) return c/2*t*t*t*t + b;
+		return -c/2 * ((t-=2)*t*t*t - 2) + b;
+	},
+	in_quint: function (t, b, c, d) {
+		return c*(t/=d)*t*t*t*t + b;
+	},
+	out_quint: function (t, b, c, d) {
+		return c*((t=t/d-1)*t*t*t*t + 1) + b;
+	},
+	in_out_quint: function (t, b, c, d) {
+		if ((t/=d/2) < 1) return c/2*t*t*t*t*t + b;
+		return c/2*((t-=2)*t*t*t*t + 2) + b;
+	},
+	in_sine: function (t, b, c, d) {
+		return -c * Math.cos(t/d * (Math.PI/2)) + c + b;
+	},
+	out_sine: function (t, b, c, d) {
+		return c * Math.sin(t/d * (Math.PI/2)) + b;
+	},
+	in_out_sine: function (t, b, c, d) {
+		return -c/2 * (Math.cos(Math.PI*t/d) - 1) + b;
+	},
+	in_expo: function (t, b, c, d) {
+		return (t==0) ? b : c * Math.pow(2, 10 * (t/d - 1)) + b;
+	},
+	out_expo: function (t, b, c, d) {
+		return (t==d) ? b+c : c * (-Math.pow(2, -10 * t/d) + 1) + b;
+	},
+	in_out_expo: function (t, b, c, d) {
+		if (t==0) return b;
+		if (t==d) return b+c;
+		if ((t/=d/2) < 1) return c/2 * Math.pow(2, 10 * (t - 1)) + b;
+		return c/2 * (-Math.pow(2, -10 * --t) + 2) + b;
+	},
+	in_circ: function (t, b, c, d) {
+		return -c * (Math.sqrt(1 - (t/=d)*t) - 1) + b;
+	},
+	out_circ: function (t, b, c, d) {
+		return c * Math.sqrt(1 - (t=t/d-1)*t) + b;
+	},
+	in_out_circ: function (t, b, c, d) {
+		if ((t/=d/2) < 1) return -c/2 * (Math.sqrt(1 - t*t) - 1) + b;
+		return c/2 * (Math.sqrt(1 - (t-=2)*t) + 1) + b;
+	},
+	in_elastic: function (t, b, c, d) {
+		var s=1.70158;var p=0;var a=c;
+		if (t==0) return b;  if ((t/=d)==1) return b+c;  if (!p) p=d*.3;
+		if (a < Math.abs(c)) { a=c; var s=p/4; }
+		else var s = p/(2*Math.PI) * Math.asin (c/a);
+		return -(a*Math.pow(2,10*(t-=1)) * Math.sin( (t*d-s)*(2*Math.PI)/p )) + b;
+	},
+	out_elastic: function (t, b, c, d) {
+		var s=1.70158;var p=0;var a=c;
+		if (t==0) return b;  if ((t/=d)==1) return b+c;  if (!p) p=d*.3;
+		if (a < Math.abs(c)) { a=c; var s=p/4; }
+		else var s = p/(2*Math.PI) * Math.asin (c/a);
+		return a*Math.pow(2,-10*t) * Math.sin( (t*d-s)*(2*Math.PI)/p ) + c + b;
+	},
+	in_out_elastic: function (t, b, c, d) {
+		var s=1.70158;var p=0;var a=c;
+		if (t==0) return b;  if ((t/=d/2)==2) return b+c;  if (!p) p=d*(.3*1.5);
+		if (a < Math.abs(c)) { a=c; var s=p/4; }
+		else var s = p/(2*Math.PI) * Math.asin (c/a);
+		if (t < 1) return -.5*(a*Math.pow(2,10*(t-=1)) * Math.sin( (t*d-s)*(2*Math.PI)/p )) + b;
+		return a*Math.pow(2,-10*(t-=1)) * Math.sin( (t*d-s)*(2*Math.PI)/p )*.5 + c + b;
+	},
+	in_back: function (t, b, c, d, s) {
+		if (s == undefined) s = 1.70158;
+		return c*(t/=d)*t*((s+1)*t - s) + b;
+	},
+	out_back: function (t, b, c, d, s) {
+		if (s == undefined) s = 1.70158;
+		return c*((t=t/d-1)*t*((s+1)*t + s) + 1) + b;
+	},
+	in_out_back: function (t, b, c, d, s) {
+		if (s == undefined) s = 1.70158;
+		if ((t/=d/2) < 1) return c/2*(t*t*(((s*=(1.525))+1)*t - s)) + b;
+		return c/2*((t-=2)*t*(((s*=(1.525))+1)*t + s) + 2) + b;
+	},
+	in_bounce: function (t, b, c, d) {
+		return c - Easing.out_bounce(d-t, 0, c, d) + b;
+	},
+	out_bounce: function (t, b, c, d) {
+		if ((t/=d) < (1/2.75)) {
+			return c*(7.5625*t*t) + b;
+		} else if (t < (2/2.75)) {
+			return c*(7.5625*(t-=(1.5/2.75))*t + .75) + b;
+		} else if (t < (2.5/2.75)) {
+			return c*(7.5625*(t-=(2.25/2.75))*t + .9375) + b;
+		} else {
+			return c*(7.5625*(t-=(2.625/2.75))*t + .984375) + b;
+		}
+	},
+	in_out_bounce: function (x, t, b, c, d) {
+		if (t < d/2) return Easing.in_bounce(t*2, 0, c, d) * .5 + b;
+		return Easing.out_bounce(t*2-d, 0, c, d) * .5 + c*.5 + b;
+	}
+}
+
+</script>
+</body>
+</html>
